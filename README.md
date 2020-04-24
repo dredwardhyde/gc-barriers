@@ -1,4 +1,4 @@
-# Implementation changes in GC barriers from Shenandoah 1.0 to 2.0
+# Implementation changes in barriers from Shenandoah GC 1.0 to 2.0
 
 All garbage collector barriers must be derived from **BarrierSetAssembler** class which implements default barriers. Then custom barrier class must be installed during heap initialization using **BarrierSet::set_barrier_set** method:
 ```cpp
