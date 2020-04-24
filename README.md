@@ -37,11 +37,13 @@ public:
 ```
 
 # Barriers in JDK <= 13
-**Read barrier** in Shenandoah is implemented as a **Brooks forwarding pointer**.  
+**Barriers** in Shenandoah is JDK versions before 13 implemented as a **Brooks forwarding pointer**.  
 Here is how it is described in [The Garbage Collection Handbook: The Art of Automatic Memory Management](https://www.amazon.com/Garbage-Collection-Handbook-Management-Algorithms/dp/1420082795)  
 
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/Screenshot%202020-04-22%20at%2009.08.12.png" width="900"/>  
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/Screenshot%202020-04-24%20at%2010.08.21.png" width="900"/>  
+
+**Read barrier**:  
 
 ```cpp
 void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
