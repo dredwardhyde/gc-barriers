@@ -11,7 +11,7 @@ ShenandoahBarrierSet::ShenandoahBarrierSet(ShenandoahHeap* heap) :
   _heap(heap),
   _satb_mark_queue_set(){}
   
-....
+...
 
 BarrierSet::set_barrier_set(new ShenandoahBarrierSet(this));
 ```
@@ -23,7 +23,6 @@ class BarrierSetAssembler: public CHeapObj<mtGC> {
 public:
   virtual void arraycopy_prologue(...) {}
   virtual void arraycopy_epilogue(...) {}
-
   virtual void load_at(...);
   virtual void store_at(...);
   virtual void obj_equals(...);
@@ -37,6 +36,7 @@ public:
 };
 ```
 
+Read barrier in Shenandoah is implemented as a Brooks forwarding pointer:
 ```cpp
 void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
              Register dst, Address src, Register tmp1, Register tmp_thread) {
@@ -46,7 +46,7 @@ void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet d
   bool on_phantom = (decorators & ON_PHANTOM_OOP_REF) != 0;
   bool on_reference = on_weak || on_phantom;
   if (in_heap) {
-    read_barrier_not_null(masm, src.base());
+    read_barrier_not_null(masm, src.base()); // read barrier
   }
   BarrierSetAssembler::load_at(masm, decorators, type, dst, src, tmp1, tmp_thread);
   if (ShenandoahKeepAliveBarrier && on_oop && on_reference) {
@@ -63,5 +63,23 @@ void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet d
                                  true /* tosca_live */,
                                  true /* expand_call */);
   }
+}
+
+void ShenandoahBarrierSetAssembler::read_barrier_not_null(MacroAssembler* masm, Register dst) {
+  if (ShenandoahReadBarrier) {
+    read_barrier_not_null_impl(masm, dst);
+  }
+}
+
+void ShenandoahBarrierSetAssembler::read_barrier_not_null_impl(MacroAssembler* masm, Register dst) {
+  assert(UseShenandoahGC && (ShenandoahReadBarrier || ShenandoahStoreValReadBarrier || ShenandoahCASBarrier), "should be enabled");
+  __ movptr(dst, Address(dst, ShenandoahBrooksPointer::byte_offset())); // looking for forwarding pointer
+}
+```
+Forwarding pointer is located in memory exactly before target object, so it could be resolved using only one instruction:
+```cpp
+/* Offset from the object start, in bytes. */
+static inline int byte_offset() {
+  return -HeapWordSize; // exactly one HeapWord
 }
 ```
