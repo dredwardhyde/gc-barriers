@@ -1,4 +1,4 @@
-# Implementation changes in Shenandoah GC barriers in JDK 13
+# Implementation changes in GC barriers from Shenandoah 1.0 to 2.0
 
 All garbage collector barriers must be derived from **BarrierSetAssembler** class which implements default barriers. Then custom barrier class must be installed during heap initialization using **BarrierSet::set_barrier_set** method:
 ```cpp
@@ -36,7 +36,7 @@ public:
 };
 ```
 
-# Barriers in JDK <= 13
+# Barriers in JDK < 13
 **Barriers** in Shenandoah is JDK versions before 13 implemented as a **Brooks forwarding pointer**.  
 Here is how it is described in [The Garbage Collection Handbook: The Art of Automatic Memory Management](https://www.amazon.com/Garbage-Collection-Handbook-Management-Algorithms/dp/1420082795):  
 
@@ -328,3 +328,5 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   }
 }
 ```
+
+# Barriers in JDK >= 13
