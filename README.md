@@ -37,7 +37,9 @@ public:
 ```
 
 # Barriers in JDK <= 13
-**Read barrier** in Shenandoah is implemented as a Brooks forwarding pointer:
+**Read barrier** in Shenandoah is implemented as a **Brooks forwarding pointer**:  
+<img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/Screenshot%202020-04-22%20at%2009.08.12.png" width="900"/>  
+**Excerpt from 
 ```cpp
 void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
              Register dst, Address src, Register tmp1, Register tmp_thread) {
