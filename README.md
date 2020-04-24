@@ -36,7 +36,7 @@ public:
 };
 ```
 
-# Barriers in JDK < 13
+# Barriers in Shenandoah 1.0
 **Barriers** in Shenandoah is JDK versions before 13 implemented as a **Brooks forwarding pointer**.  
 Here is how it is described in [The Garbage Collection Handbook: The Art of Automatic Memory Management](https://www.amazon.com/Garbage-Collection-Handbook-Management-Algorithms/dp/1420082795):  
 
@@ -329,4 +329,4 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
 }
 ```
 
-# Barriers in JDK >= 13
+# Barriers in Shenandoah 2.0
