@@ -35,6 +35,9 @@ public:
   virtual void nmethod_entry_barrier(...);
 };
 ```
+Barriers are invoked during bytecode interpretation, for example:
+
+<img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/barriers.png" width="800"/> 
 
 # Barriers in Shenandoah 1.0
 **Barriers** in Shenandoah is JDK versions before 13 implemented as a **Brooks forwarding pointer**.  
