@@ -244,6 +244,7 @@ oop ShenandoahBarrierSet::write_barrier_mutator(oop obj) {
     size_t max = ShenandoahEvacAssist;
     if (max > 0) {
       // Try to evacuate up to 'max' adjacent objects
+      ...
     }
 
     return res_oop;
