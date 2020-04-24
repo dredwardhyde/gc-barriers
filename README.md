@@ -43,7 +43,7 @@ Here is how it is described in [The Garbage Collection Handbook: The Art of Auto
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/Screenshot%202020-04-22%20at%2009.08.12.png" width="900"/>  
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/Screenshot%202020-04-24%20at%2010.08.21.png" width="900"/>  
 
-**Read barrier**:  
+## Read barrier  
 
 ```cpp
 void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
@@ -92,7 +92,8 @@ static inline int byte_offset() {
 }
 ```
 
-**Write barrier** consists of two parts: **Brook's write barrier** and **SATB barrier**:
+## Write barrier
+Consists of two parts: **Brook's write barrier** and **SATB barrier**:
 
 ```cpp
 void ShenandoahBarrierSetAssembler::store_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
