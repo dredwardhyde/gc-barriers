@@ -92,7 +92,7 @@ static inline int byte_offset() {
 }
 ```
 
-**Write barrier** consists of two parts: **'main' barrier** and **SATB barrier**:
+**Write barrier** consists of two parts: **Brook's write barrier** and **SATB barrier**:
 
 ```cpp
 void ShenandoahBarrierSetAssembler::store_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
@@ -101,7 +101,7 @@ void ShenandoahBarrierSetAssembler::store_at(MacroAssembler* masm, DecoratorSet 
   bool in_heap = (decorators & IN_HEAP) != 0;
   bool as_normal = (decorators & AS_NORMAL) != 0;
   if (in_heap) {
-    write_barrier(masm, dst.base()); // 'Main' barrier
+    write_barrier(masm, dst.base()); // Brook's write barrier
   }
   // Code below belongs to SATB barrier
   if (type == T_OBJECT || type == T_ARRAY) {
