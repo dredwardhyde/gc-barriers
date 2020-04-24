@@ -333,4 +333,110 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
 }
 ```
 
+# ACMP barrier  
+
+Invoked, for example, during **if_acmp** opcode interpretation (when you compare two objects by references)
+
+```cpp
+void ShenandoahBarrierSetAssembler::obj_equals(MacroAssembler* masm, Register op1, Register op2) {
+  __ cmpptr(op1, op2); // compare initial pointers
+  if (ShenandoahAcmpBarrier) {
+    Label done;
+    __ jccb(Assembler::equal, done);
+    read_barrier(masm, op1); // read first object's forwarding pointer
+    read_barrier(masm, op2); // read second object's forwarding pointer
+    __ cmpptr(op1, op2);     // compare them too
+    __ bind(done);
+  }
+}
+```
+
+# CAS barrier
+```cpp
+void ShenandoahBarrierSetAssembler::cmpxchg_oop(MacroAssembler* masm,
+                                                Register res, Address addr, Register oldval, Register newval,
+                                                bool exchange, Register tmp1, Register tmp2) {
+  assert(ShenandoahCASBarrier, "Should only be used when CAS barrier is enabled");
+  assert(oldval == rax, "must be in rax for implicit use in cmpxchg");
+
+  Label retry, done;
+
+  // Remember oldval for retry logic below
+  if (UseCompressedOops) {
+    __ movl(tmp1, oldval);
+  } else {
+    __ movptr(tmp1, oldval);
+  }
+
+  // Step 1. Try to CAS with given arguments. If successful, then we are done,
+  // and can safely return.
+  if (os::is_MP()) __ lock();
+  if (UseCompressedOops) {
+    __ cmpxchgl(newval, addr);
+  } else {
+    __ cmpxchgptr(newval, addr);
+  }
+  __ jcc(Assembler::equal, done, true);
+
+  // Step 2. CAS had failed. This may be a false negative.
+  //
+  // The trouble comes when we compare the to-space pointer with the from-space
+  // pointer to the same object. To resolve this, it will suffice to read both
+  // oldval and the value from memory through the read barriers -- this will give
+  // both to-space pointers. If they mismatch, then it was a legitimate failure.
+  //
+  if (UseCompressedOops) {
+    __ decode_heap_oop(tmp1);
+  }
+  read_barrier_impl(masm, tmp1);
+
+  if (UseCompressedOops) {
+    __ movl(tmp2, oldval);
+    __ decode_heap_oop(tmp2);
+  } else {
+    __ movptr(tmp2, oldval);
+  }
+  read_barrier_impl(masm, tmp2);
+
+  __ cmpptr(tmp1, tmp2);
+  __ jcc(Assembler::notEqual, done, true);
+
+  // Step 3. Try to CAS again with resolved to-space pointers.
+  //
+  // Corner case: it may happen that somebody stored the from-space pointer
+  // to memory while we were preparing for retry. Therefore, we can fail again
+  // on retry, and so need to do this in loop, always re-reading the failure
+  // witness through the read barrier.
+  __ bind(retry);
+  if (os::is_MP()) __ lock();
+  if (UseCompressedOops) {
+    __ cmpxchgl(newval, addr);
+  } else {
+    __ cmpxchgptr(newval, addr);
+  }
+  __ jcc(Assembler::equal, done, true);
+
+  if (UseCompressedOops) {
+    __ movl(tmp2, oldval);
+    __ decode_heap_oop(tmp2);
+  } else {
+    __ movptr(tmp2, oldval);
+  }
+  read_barrier_impl(masm, tmp2);
+
+  __ cmpptr(tmp1, tmp2);
+  __ jcc(Assembler::equal, retry, true);
+
+  // Step 4. If we need a boolean result out of CAS, check the flag again,
+  // and promote the result. Note that we handle the flag from both the CAS
+  // itself and from the retry loop.
+  __ bind(done);
+  if (!exchange) {
+    assert(res != NULL, "need result register");
+    __ setb(Assembler::equal, res);
+    __ movzbl(res, res);
+  }
+}
+```
+
 # Barriers in Shenandoah 2.0+ (JDK 14)
