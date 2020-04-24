@@ -1,6 +1,6 @@
 # Shenandoah Garbage Collector's Barriers Evolution
 
-All garbage collector barriers must be derived from **BarrierSetAssembler** class which implements default barriers. Then custom barrier class must be installed during heap initialization using **BarrierSet::set_barrier_set** method:
+All garbage collector's interpreter barriers must be derived from **BarrierSetAssembler** class which implements default barriers. Then custom barrier class must be installed during heap initialization using **BarrierSet::set_barrier_set** method along with barrier sets for C1 and C2 JIT compilers:
 ```cpp
 ShenandoahBarrierSet::ShenandoahBarrierSet(ShenandoahHeap* heap) :
   BarrierSet(make_barrier_set_assembler<ShenandoahBarrierSetAssembler>(),
@@ -351,7 +351,10 @@ void ShenandoahBarrierSetAssembler::obj_equals(MacroAssembler* masm, Register op
 }
 ```
 
-# CAS barrier
+# CAS barrier  
+
+This barrier is implemented as dedicated LIRA operation **LIR_OpShenandoahCompareAndSwap** as a part of **ShenandoahBarrierSetC1** barrier set:
+
 ```cpp
 void ShenandoahBarrierSetAssembler::cmpxchg_oop(MacroAssembler* masm,
                                                 Register res, Address addr, Register oldval, Register newval,
