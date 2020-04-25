@@ -457,3 +457,134 @@ In essence, Shenandoah designers took similar approach as Azul in their [C4 Garb
 Excerpt from  [Azul C4 white paper](http://go.azul.com/continuously-concurrent-compacting-collector):  
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/lvb_azul.png" width="500"/>  
   
+## Write barrier
+
+As you can see, only **SATB barrier** is still here, no **Brook's barrier**:  
+
+```cpp
+void ShenandoahBarrierSetAssembler::store_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
+              Address dst, Register val, Register tmp1, Register tmp2) {
+
+  bool on_oop = is_reference_type(type);
+  bool in_heap = (decorators & IN_HEAP) != 0;
+  bool as_normal = (decorators & AS_NORMAL) != 0;
+  if (on_oop && in_heap) {
+    bool needs_pre_barrier = as_normal;
+
+    Register tmp3 = LP64_ONLY(r8) NOT_LP64(rsi);
+    Register rthread = LP64_ONLY(r15_thread) NOT_LP64(rcx);
+    // flatten object address if needed
+    // We do it regardless of precise because we need the registers
+    if (dst.index() == noreg && dst.disp() == 0) {
+      if (dst.base() != tmp1) {
+        __ movptr(tmp1, dst.base());
+      }
+    } else {
+      __ lea(tmp1, dst);
+    }
+
+    assert_different_registers(val, tmp1, tmp2, tmp3, rthread);
+    
+    if (needs_pre_barrier) {
+      shenandoah_write_barrier_pre(masm /*masm*/,
+                                   tmp1 /* obj */,
+                                   tmp2 /* pre_val */,
+                                   rthread /* thread */,
+                                   tmp3  /* tmp */,
+                                   val != noreg /* tosca_live */,
+                                   false /* expand_call */);
+    }
+    if (val == noreg) {
+      BarrierSetAssembler::store_at(masm, decorators, type, Address(tmp1, 0), val, noreg, noreg);
+    } else {
+      storeval_barrier(masm, val, tmp3);
+      BarrierSetAssembler::store_at(masm, decorators, type, Address(tmp1, 0), val, noreg, noreg);
+    }
+    NOT_LP64(imasm->restore_bcp());
+  } else {
+    BarrierSetAssembler::store_at(masm, decorators, type, dst, val, tmp1, tmp2);
+  }
+}
+```
+
+## Read barrier  
+
+```cpp
+void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
+             Register dst, Address src, Register tmp1, Register tmp_thread) {
+  // 1: non-reference load, no additional barrier is needed
+  if (!is_reference_type(type)) {
+    BarrierSetAssembler::load_at(masm, decorators, type, dst, src, tmp1, tmp_thread);
+    return;
+  }
+
+  assert((decorators & ON_UNKNOWN_OOP_REF) == 0, "Not expected");
+
+  // 2: load a reference from src location and apply LRB if needed
+  if (ShenandoahBarrierSet::need_load_reference_barrier(decorators, type)) {
+    Register result_dst = dst;
+    bool use_tmp1_for_dst = false;
+
+    // Preserve src location for LRB
+    if (dst == src.base() || dst == src.index()) {
+      // Use tmp1 for dst if possible, as it is not used in BarrierAssembler::load_at()
+      if (tmp1->is_valid() && tmp1 != src.base() && tmp1 != src.index()) {
+        dst = tmp1;
+        use_tmp1_for_dst = true;
+      } else {
+        dst = rdi;
+        __ push(dst);
+      }
+      assert_different_registers(dst, src.base(), src.index());
+    }
+
+    BarrierSetAssembler::load_at(masm, decorators, type, dst, src, tmp1, tmp_thread);
+
+    if (ShenandoahBarrierSet::use_load_reference_barrier_native(decorators, type)) {
+      load_reference_barrier_native(masm, dst, src);
+    } else {
+      load_reference_barrier(masm, dst, src);
+    }
+
+    // Move loaded oop to final destination
+    if (dst != result_dst) {
+      __ movptr(result_dst, dst);
+
+      if (!use_tmp1_for_dst) {
+        __ pop(dst);
+      }
+
+      dst = result_dst;
+    }
+  } else {
+    BarrierSetAssembler::load_at(masm, decorators, type, dst, src, tmp1, tmp_thread);
+  }
+
+  // 3: apply keep-alive barrier if needed
+  if (ShenandoahBarrierSet::need_keep_alive_barrier(decorators, type)) {
+    __ push_IU_state();
+    // That path can be reached from the c2i adapter with live fp
+    // arguments in registers.
+    LP64_ONLY(assert(Argument::n_float_register_parameters_j == 8, "8 fp registers to save at java call"));
+
+    ...
+
+    Register thread = NOT_LP64(tmp_thread) LP64_ONLY(r15_thread);
+    assert_different_registers(dst, tmp1, tmp_thread);
+    if (!thread->is_valid()) {
+      thread = rdx;
+    }
+    NOT_LP64(__ get_thread(thread));
+    // Generate the SATB pre-barrier code to log the value of
+    // the referent field in an SATB buffer.
+    shenandoah_write_barrier_pre(masm /* masm */,
+                                 noreg /* obj */,
+                                 dst /* pre_val */,
+                                 thread /* thread */,
+                                 tmp1 /* tmp */,
+                                 true /* tosca_live */,
+                                 true /* expand_call */);
+    ...
+  }
+}
+```
