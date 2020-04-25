@@ -39,8 +39,8 @@ Barriers are invoked during bytecode interpretation, for example:
 
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/barriers.png" width="800"/> 
 
-# Barriers in Shenandoah 1.0 (JDK 12)
-**Barriers** in Shenandoah is JDK versions before 13 implemented as a **Brooks forwarding pointer**.  
+# Barriers in Shenandoah 1.0
+**Barriers** in Shenandoah 1.0 were implemented as a **Brooks forwarding pointer**.  
 Here is how it is described in [The Garbage Collection Handbook: The Art of Automatic Memory Management](https://www.amazon.com/Garbage-Collection-Handbook-Management-Algorithms/dp/1420082795):  
 
 <img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/Screenshot%202020-04-22%20at%2009.08.12.png" width="900"/>  
@@ -442,4 +442,18 @@ void ShenandoahBarrierSetAssembler::cmpxchg_oop(MacroAssembler* masm,
 }
 ```
 
-# Barriers in Shenandoah 2.0+ (JDK 14)
+# Barriers in Shenandoah 2.0+  
+
+In version 2.0 barriers were implemented as Load Reference Barriers - objects could be evacuated during its reference resolution, writes and reads always happen into/from the to-space copy (strong invariant).
+
+Key changes:
+
+You could read more about Shenandoah 2.0+ architecture in the following articles by [Roman Kennke](https://twitter.com/rkennke):  
+[Shenandoah GC in JDK 13, Part 1: Load reference barriers](https://developers.redhat.com/blog/2019/06/27/shenandoah-gc-in-jdk-13-part-1-load-reference-barriers/)  
+[Shenandoah GC in JDK 13, Part 2: Eliminating the forward pointer word](https://developers.redhat.com/blog/2019/06/28/shenandoah-gc-in-jdk-13-part-2-eliminating-the-forward-pointer-word/)  
+[Shenandoah GC in JDK 14, Part 1: Self-fixing barriers](https://developers.redhat.com/blog/2020/03/04/shenandoah-gc-in-jdk-14-part-1-self-fixing-barriers/)  
+
+In essence, Shenandoah designers took similar approach as Azul in their [C4 Garbage Collector](https://www.azul.com/resources/azul-technology/azul-c4-garbage-collector/):
+
+<img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/lvb_azul.png" width="700"/>  
+Excerpt from [Azul C4 white paper](http://go.azul.com/continuously-concurrent-compacting-collector)
