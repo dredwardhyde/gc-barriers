@@ -453,7 +453,7 @@ You could read more about Shenandoah 2.0+ architecture in the following articles
 [Shenandoah GC in JDK 13, Part 2: Eliminating the forward pointer word](https://developers.redhat.com/blog/2019/06/28/shenandoah-gc-in-jdk-13-part-2-eliminating-the-forward-pointer-word/)  
 [Shenandoah GC in JDK 14, Part 1: Self-fixing barriers](https://developers.redhat.com/blog/2020/03/04/shenandoah-gc-in-jdk-14-part-1-self-fixing-barriers/)  
 
-In essence, Shenandoah designers took similar approach as Azul in their [C4 Garbage Collector](https://www.azul.com/resources/azul-technology/azul-c4-garbage-collector/):
-
-<img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/lvb_azul.png" width="700"/>  
-Excerpt from [Azul C4 white paper](http://go.azul.com/continuously-concurrent-compacting-collector)
+In essence, Shenandoah designers took similar approach as Azul in their [C4 Garbage Collector](https://www.azul.com/resources/azul-technology/azul-c4-garbage-collector/).  
+Excerpt from  [Azul C4 white paper](http://go.azul.com/continuously-concurrent-compacting-collector):  
+<img src="https://raw.githubusercontent.com/dredwardhyde/gc-barriers/master/lvb_azul.png" width="500"/>  
+  
