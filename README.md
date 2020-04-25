@@ -588,3 +588,243 @@ void ShenandoahBarrierSetAssembler::load_at(MacroAssembler* masm, DecoratorSet d
   }
 }
 ```
+
+```cpp
+void ShenandoahBarrierSetAssembler::load_reference_barrier(MacroAssembler* masm, Register dst, Address src) {
+  if (ShenandoahLoadRefBarrier) {
+    Label done;
+    __ testptr(dst, dst);
+    __ jcc(Assembler::zero, done);
+    load_reference_barrier_not_null(masm, dst, src);
+    __ bind(done);
+  }
+}
+
+void ShenandoahBarrierSetAssembler::load_reference_barrier_not_null(MacroAssembler* masm, Register dst, Address src) {
+  assert(ShenandoahLoadRefBarrier, "Should be enabled");
+
+  Label done;
+
+  Register thread = r15_thread;
+
+  Address gc_state(thread, in_bytes(ShenandoahThreadLocalData::gc_state_offset()));
+  __ testb(gc_state, ShenandoahHeap::HAS_FORWARDED);
+  __ jccb(Assembler::zero, done);
+
+  // Use rsi for src address
+  const Register src_addr = rsi;
+  // Setup address parameter first, if it does not clobber oop in dst
+  bool need_addr_setup = (src_addr != dst);
+
+  if (need_addr_setup) {
+    __ push(src_addr);
+    __ lea(src_addr, src);
+
+    if (dst != rax) {
+      // Move obj into rax and save rax
+      __ push(rax);
+      __ movptr(rax, dst);
+    }
+  } else {
+    // dst == rsi
+    __ push(rax);
+    __ movptr(rax, dst);
+
+    // we can clobber it, since it is outgoing register
+    __ lea(src_addr, src);
+  }
+
+  __ call(RuntimeAddress(CAST_FROM_FN_PTR(address, ShenandoahBarrierSetAssembler::shenandoah_lrb())));
+
+  if (need_addr_setup) {
+    if (dst != rax) {
+      __ movptr(dst, rax);
+      __ pop(rax);
+    }
+    __ pop(src_addr);
+  } else {
+    __ movptr(dst, rax);
+    __ pop(rax);
+  }
+
+  __ bind(done);
+}
+```
+```cpp
+address ShenandoahBarrierSetAssembler::generate_shenandoah_lrb(StubCodeGenerator* cgen) {
+  __ align(CodeEntryAlignment);
+  StubCodeMark mark(cgen, "StubRoutines", "shenandoah_lrb");
+  address start = __ pc();
+
+  Label resolve_oop, slow_path;
+
+  // We use RDI, which also serves as argument register for slow call.
+  // RAX always holds the src object ptr, except after the slow call,
+  // then it holds the result. R8/RBX is used as temporary register.
+
+  Register tmp1 = rdi;
+  Register tmp2 = LP64_ONLY(r8) NOT_LP64(rbx);
+
+  __ push(tmp1);
+  __ push(tmp2);
+
+  // Check for object being in the collection set.
+  __ mov(tmp1, rax);
+  __ shrptr(tmp1, ShenandoahHeapRegion::region_size_bytes_shift_jint());
+  __ movptr(tmp2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+  __ movbool(tmp2, Address(tmp2, tmp1, Address::times_1));
+  __ testbool(tmp2);
+  __ jccb(Assembler::notZero, resolve_oop);
+  __ pop(tmp2);
+  __ pop(tmp1);
+  __ ret(0);
+
+  // Test if object is already resolved.
+  __ bind(resolve_oop);
+  __ movptr(tmp2, Address(rax, oopDesc::mark_offset_in_bytes()));
+  // Test if both lowest bits are set. We trick it by negating the bits
+  // then test for both bits clear.
+  __ notptr(tmp2);
+  __ testb(tmp2, markWord::marked_value);
+  __ jccb(Assembler::notZero, slow_path);
+  // Clear both lower bits. It's still inverted, so set them, and then invert back.
+  __ orptr(tmp2, markWord::marked_value);
+  __ notptr(tmp2);
+  // At this point, tmp2 contains the decoded forwarding pointer.
+  __ mov(rax, tmp2);
+
+  __ pop(tmp2);
+  __ pop(tmp1);
+  __ ret(0);
+
+  __ bind(slow_path);
+
+  ...
+  
+  __ push_FPU_state();
+  if (UseCompressedOops) {
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_narrow), rax, rsi);
+  } else {
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier), rax, rsi);
+  }
+  __ pop_FPU_state();
+  __ movptr(rsp, rbp);
+  __ pop(rbp);
+
+  ...
+
+  __ ret(0);
+
+  return start;
+}
+```
+
+```cpp
+JRT_LEAF(oopDesc*, ShenandoahRuntime::load_reference_barrier(oopDesc* src, oop* load_addr))
+  return ShenandoahBarrierSet::barrier_set()->load_reference_barrier_mutator(src, load_addr);
+JRT_END
+
+oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, oop* load_addr) {
+  return load_reference_barrier_mutator_work(obj, load_addr);
+}
+
+template <class T>
+oop ShenandoahBarrierSet::load_reference_barrier_mutator_work(oop obj, T* load_addr) {
+  assert(ShenandoahLoadRefBarrier, "should be enabled");
+  shenandoah_assert_in_cset(load_addr, obj);
+
+  oop fwd = resolve_forwarded_not_null_mutator(obj);
+  if (obj == fwd) {
+    assert(_heap->is_gc_in_progress_mask(ShenandoahHeap::EVACUATION | ShenandoahHeap::TRAVERSAL),
+           "evac should be in progress");
+
+    ShenandoahEvacOOMScope scope;
+    fwd = _heap->evacuate_object(obj, Thread::current());
+  }
+
+  if (load_addr != NULL && fwd != obj) {
+    // Since we are here and we know the load address, update the reference.
+    ShenandoahHeap::cas_oop(fwd, load_addr, obj);
+  }
+
+  return fwd;
+}
+```
+
+```cpp
+inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
+  if (ShenandoahThreadLocalData::is_oom_during_evac(Thread::current())) {
+    // This thread went through the OOM during evac protocol and it is safe to return
+    // the forward pointer. It must not attempt to evacuate any more.
+    return ShenandoahBarrierSet::resolve_forwarded(p);
+  }
+
+  assert(ShenandoahThreadLocalData::is_evac_allowed(thread), "must be enclosed in oom-evac scope");
+  assert(is_concurrent_traversal_in_progress() || !is_traversal_mode(), "Should not evacuate objects");
+
+  size_t size = p->size();
+
+  assert(!heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
+
+  bool alloc_from_gclab = true;
+  HeapWord* copy = NULL;
+
+#ifdef ASSERT
+  if (ShenandoahOOMDuringEvacALot &&
+      (os::random() & 1) == 0) { // Simulate OOM every ~2nd slow-path call
+        copy = NULL;
+  } else {
+#endif
+    if (UseTLAB) {
+      copy = allocate_from_gclab(thread, size);
+    }
+    if (copy == NULL) {
+      ShenandoahAllocRequest req = ShenandoahAllocRequest::for_shared_gc(size);
+      copy = allocate_memory(req);
+      alloc_from_gclab = false;
+    }
+#ifdef ASSERT
+  }
+#endif
+
+  if (copy == NULL) {
+    control_thread()->handle_alloc_failure_evac(size);
+
+    _oom_evac_handler.handle_out_of_memory_during_evacuation();
+
+    return ShenandoahBarrierSet::resolve_forwarded(p);
+  }
+
+  // Copy the object:
+  Copy::aligned_disjoint_words((HeapWord*) p, copy, size);
+
+  // Try to install the new forwarding pointer.
+  oop copy_val = oop(copy);
+  oop result = ShenandoahForwarding::try_update_forwardee(p, copy_val);
+  if (result == copy_val) {
+    // Successfully evacuated. Our copy is now the public one!
+    shenandoah_assert_correct(NULL, copy_val);
+    return copy_val;
+  }  else {
+    // Failed to evacuate. We need to deal with the object that is left behind. Since this
+    // new allocation is certainly after TAMS, it will be considered live in the next cycle.
+    // But if it happens to contain references to evacuated regions, those references would
+    // not get updated for this stale copy during this cycle, and we will crash while scanning
+    // it the next cycle.
+    //
+    // For GCLAB allocations, it is enough to rollback the allocation ptr. Either the next
+    // object will overwrite this stale copy, or the filler object on LAB retirement will
+    // do this. For non-GCLAB allocations, we have no way to retract the allocation, and
+    // have to explicitly overwrite the copy with the filler object. With that overwrite,
+    // we have to keep the fwdptr initialized and pointing to our (stale) copy.
+    if (alloc_from_gclab) {
+      ShenandoahThreadLocalData::gclab(thread)->undo_allocation(copy, size);
+    } else {
+      fill_with_object(copy, size);
+      shenandoah_assert_correct(NULL, copy_val);
+    }
+    shenandoah_assert_correct(NULL, result);
+    return result;
+  }
+}
+```
